@@ -2,17 +2,22 @@
 # Build Windows EXE Workflow
 # =============================================================================
 # Triggers:
-#   - After a GitHub Release is published (by semantic-release or manually)
+#   - After the Release workflow completes successfully
+#   - Manual dispatch with tag input
 #
 # Builds a standalone Windows EXE using PyInstaller and uploads it
-# as a release asset to the triggering release.
+# as a release asset to the latest release.
+#
+# Note: Uses workflow_run instead of release event because releases
+# created by GITHUB_TOKEN don't trigger further workflows.
 # =============================================================================
 
 name: 🔨 Build Windows EXE
 
 on:
-  release:
-    types: [published]
+  workflow_run:
+    workflows: ['🚀 Release']
+    types: [completed]
   workflow_dispatch:
     inputs:
       tag:
@@ -28,12 +33,33 @@ jobs:
     name: 🔨 Build & Upload EXE
     runs-on: windows-latest
     timeout-minutes: 15
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      github.event.workflow_run.conclusion == 'success'
 
     steps:
+      - name: 🏷️ Determine Release Tag
+        id: tag
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          if [ -n "${{ inputs.tag }}" ]; then
+            echo "tag=${{ inputs.tag }}" >> $GITHUB_OUTPUT
+          else
+            TAG=$(gh release view --repo "${{ github.repository }}" --json tagName -q '.tagName')
+            if [ -z "$TAG" ]; then
+              echo "❌ No release found"
+              exit 1
+            fi
+            echo "tag=$TAG" >> $GITHUB_OUTPUT
+            echo "📦 Latest release: $TAG"
+          fi
+
       - name: 📥 Checkout Repository
         uses: actions/checkout@v6
         with:
-          ref: ${{ github.event.release.tag_name || inputs.tag }}
+          ref: ${{ steps.tag.outputs.tag }}
 
       - name: 🐍 Setup Python
         uses: actions/setup-python@v6
@@ -50,7 +76,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         shell: bash
         run: |
-          TAG="${{ github.event.release.tag_name || inputs.tag }}"
+          TAG="${{ steps.tag.outputs.tag }}"
           EXE_PATH="dist/pdf_folder_print.exe"
 
           if [ ! -f "$EXE_PATH" ]; then
