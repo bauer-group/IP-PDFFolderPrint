@@ -1,3 +1,9 @@
+## [0.2.1](https://github.com/bauer-group/IP-PDFFolderPrint/compare/v0.2.0...v0.2.1) (2026-04-02)
+
+### 🐛 Bug Fixes
+
+* **build:** forced UTF-8 output encoding on Windows ([79f7fa4](https://github.com/bauer-group/IP-PDFFolderPrint/commit/79f7fa4b81145da61b8f8e0eea3fcb2f18f8cfe2))
+
 ## [0.2.0](https://github.com/bauer-group/IP-PDFFolderPrint/compare/v0.1.1...v0.2.0) (2026-04-02)
 
 ### 🚀 Features
