@@ -69,7 +69,7 @@ jobs:
 
       - name: 🔨 Build EXE
         shell: bash
-        run: python build.py
+        run: python build.py --ci
 
       - name: 📤 Upload EXE to Release
         env:

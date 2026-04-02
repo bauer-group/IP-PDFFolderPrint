@@ -8,7 +8,8 @@ The EXE contains both CLI (Rich) and GUI (tkinter) in a single file:
   • Double-click         →  GUI
   • With CLI arguments   →  Command line with Rich output
 
-  python build.py              → Build the EXE
+  python build.py              → Build the EXE (local, with venv)
+  python build.py --ci         → Build the EXE (CI, uses system Python)
   python build.py --clean      → Remove build artifacts
   python build.py --clean-all  → Remove everything (incl. venv, dist)
   python build.py --check      → Check dependencies only
@@ -87,12 +88,18 @@ def ensure_venv():
     log("Virtual environment created", "✅")
 
 
-def install_deps():
-    run([str(VENV_PIP), "install", "--upgrade", "pip"], "Upgrading pip")
-    run(
-        [str(VENV_PIP), "install", "--upgrade"] + DEPENDENCIES,
-        f"Installing: {', '.join(DEPENDENCIES)}",
-    )
+def install_deps(ci: bool = False):
+    if ci:
+        run(
+            [sys.executable, "-m", "pip", "install", "-r", str(SCRIPT_DIR / "requirements.txt")],
+            "Installing from requirements.txt (CI)",
+        )
+    else:
+        run([str(VENV_PIP), "install", "--upgrade", "pip"], "Upgrading pip")
+        run(
+            [str(VENV_PIP), "install", "--upgrade"] + DEPENDENCIES,
+            f"Installing: {', '.join(DEPENDENCIES)}",
+        )
     log("All dependencies installed", "✅")
 
 
@@ -104,15 +111,18 @@ def check_main_script():
     log(f"Main script: {MAIN_SCRIPT.name}", "✅")
 
 
-def build_exe():
-    pyinstaller = VENV_DIR / ("Scripts" if sys.platform == "win32" else "bin") / "pyinstaller"
-    if sys.platform == "win32":
-        pyinstaller = pyinstaller.with_suffix(".exe")
-
-    if pyinstaller.exists():
-        pyinstaller_cmd = [str(pyinstaller)]
+def build_exe(ci: bool = False):
+    if ci:
+        pyinstaller_cmd = [sys.executable, "-m", "PyInstaller"]
     else:
-        pyinstaller_cmd = [str(VENV_PYTHON), "-m", "PyInstaller"]
+        pyinstaller = VENV_DIR / ("Scripts" if sys.platform == "win32" else "bin") / "pyinstaller"
+        if sys.platform == "win32":
+            pyinstaller = pyinstaller.with_suffix(".exe")
+
+        if pyinstaller.exists():
+            pyinstaller_cmd = [str(pyinstaller)]
+        else:
+            pyinstaller_cmd = [str(VENV_PYTHON), "-m", "PyInstaller"]
 
     cmd = pyinstaller_cmd + [
         "--onefile",
@@ -182,6 +192,7 @@ def main():
     parser.add_argument("--clean-all", action="store_true", help="Remove everything (incl. venv/dist)")
     parser.add_argument("--check", action="store_true", help="Check dependencies only")
     parser.add_argument("--rebuild-venv", action="store_true", help="Recreate venv from scratch")
+    parser.add_argument("--ci", action="store_true", help="CI mode: skip venv, use system Python")
     args = parser.parse_args()
 
     print()
@@ -209,8 +220,12 @@ def main():
 
     print()
     log("Preparing environment...", "📦")
-    ensure_venv()
-    install_deps()
+    if args.ci:
+        log("CI mode: using system Python", "🔧")
+        install_deps(ci=True)
+    else:
+        ensure_venv()
+        install_deps()
 
     if args.check:
         print()
@@ -219,7 +234,7 @@ def main():
 
     print()
     log("Building EXE...", "🔨")
-    build_exe()
+    build_exe(ci=args.ci)
 
     print()
     clean_build()
