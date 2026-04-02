@@ -20,11 +20,18 @@ Output:       dist/pdf_folder_print.exe
 """
 
 import argparse
+import os
 import shutil
 import subprocess
 import sys
 import venv
 from pathlib import Path
+
+# ── Ensure UTF-8 output on Windows (CI runners default to cp1252) ────
+if os.name == "nt":
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 
 # ── Configuration ─────────────────────────────────────────────────────
 SCRIPT_DIR = Path(__file__).parent.resolve()
