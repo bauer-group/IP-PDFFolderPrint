@@ -1,0 +1,64 @@
+# =============================================================================
+# Build Windows EXE Workflow
+# =============================================================================
+# Triggers:
+#   - After a GitHub Release is published (by semantic-release or manually)
+#
+# Builds a standalone Windows EXE using PyInstaller and uploads it
+# as a release asset to the triggering release.
+# =============================================================================
+
+name: 🔨 Build Windows EXE
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag to attach the EXE to (e.g. v1.0.0)'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  build-exe:
+    name: 🔨 Build & Upload EXE
+    runs-on: windows-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: 📥 Checkout Repository
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.release.tag_name || inputs.tag }}
+
+      - name: 🐍 Setup Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.14'
+          cache: 'pip'
+
+      - name: 🔨 Build EXE
+        shell: bash
+        run: python build.py
+
+      - name: 📤 Upload EXE to Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          TAG="${{ github.event.release.tag_name || inputs.tag }}"
+          EXE_PATH="dist/pdf_folder_print.exe"
+
+          if [ ! -f "$EXE_PATH" ]; then
+            echo "❌ EXE not found at $EXE_PATH"
+            exit 1
+          fi
+
+          SIZE_MB=$(du -m "$EXE_PATH" | cut -f1)
+          echo "📦 Uploading pdf_folder_print.exe (${SIZE_MB} MB) to release ${TAG}"
+
+          gh release upload "$TAG" "$EXE_PATH" --clobber
