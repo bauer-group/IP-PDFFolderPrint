@@ -171,8 +171,8 @@ class PrintApp:
         saved = load_settings()
         self.folder_var = tk.StringVar(value=saved.get("folder", ""))
         self.printer_var = tk.StringVar()
-        self.delay_var = tk.StringVar(value=str(saved.get("delay", "1.0")))
-        self.retries_var = tk.StringVar(value=str(saved.get("retries", "0")))
+        self.delay_var = tk.StringVar(value=str(saved.get("delay", "0.0")))
+        self.retries_var = tk.StringVar(value=str(saved.get("retries", "1")))
         self.sort_var = tk.StringVar(value="natural" if saved.get("natural_sort") else "alpha")
         self.report_var = tk.BooleanVar(value=bool(saved.get("report", False)))
         self.report_fmt_var = tk.StringVar(value=str(saved.get("report_format", "csv")))
@@ -516,7 +516,7 @@ class PrintApp:
         try:
             return max(0.0, float(self.delay_var.get().replace(",", ".")))
         except ValueError:
-            return 1.0
+            return 0.0
 
     def _read_retries(self) -> int:
         try:

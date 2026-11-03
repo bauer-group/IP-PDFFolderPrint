@@ -110,7 +110,7 @@ pdf_folder_print.exe --natural-sort "C:\Exports\March"
 # Override render DPI (default: printer-native)
 pdf_folder_print.exe --dpi 300 "C:\Exports\March"
 
-# Adjust delay between print jobs (default: 1s)
+# Adjust delay between print jobs (default: 0, spooler handles pacing)
 pdf_folder_print.exe --delay 2.0 "C:\Exports\March"
 
 # List all available printers
