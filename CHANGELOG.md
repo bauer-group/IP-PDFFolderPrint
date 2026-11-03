@@ -4,6 +4,12 @@ All notable changes to this project are documented here. This file is maintained
 automatically by [semantic-release](https://github.com/semantic-release/semantic-release)
 on every release to `main`.
 
+## [0.4.0](https://github.com/bauer-group/IP-PDFFolderPrint/compare/v0.3.0...v0.4.0) (2026-11-03)
+
+### 🚀 Features
+
+* **gui:** redesigned German-first UI with form grid and clean visual hierarchy ([ea9700a](https://github.com/bauer-group/IP-PDFFolderPrint/commit/ea9700a74f0949bcce6cbeacf52ed520191f9144))
+
 ## [0.3.0](https://github.com/bauer-group/IP-PDFFolderPrint/compare/v0.2.1...v0.3.0) (2026-11-03)
 
 ### 🚀 Features
