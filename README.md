@@ -41,8 +41,8 @@ That's it. Every PDF gets printed in order, correctly scaled, with automatic por
 
 - **Structured print order** — root folder first, then subfolders alphabetically, each folder's PDFs sorted alphabetically
 - **Fit-to-Page scaling** — undersized pages scale up, oversized pages scale down, aspect ratio preserved, content centered
-- **Auto orientation** — portrait and landscape detected per page, printer switched via Windows DEVMODE (works even for mixed-orientation PDFs)
-- **Dry-run mode** — preview what would be printed, including page counts, dimensions, and orientation, without sending anything to the printer
+- **Auto orientation** — portrait and landscape detected per page by comparing normal vs. rotated 90° placement and keeping whichever fills the page better (works even for mixed-orientation PDFs)
+- **Dry-run mode** — preview what would be printed, including page counts, dimensions, and orientation, without sending anything to the printer; unreadable PDFs are flagged and fail the run
 - **GUI and CLI** — double-click for a graphical interface, pass arguments for command-line automation
 - **Rich CLI output** — colored progress bars, folder trees, summary tables via the [Rich](https://github.com/Textualize/rich) library
 - **Standalone EXE** — bundle as a single `.exe` with no runtime dependencies via PyInstaller
@@ -89,6 +89,9 @@ pdf_folder_print.exe --dry-run "C:\Exports\March"
 # Print to a specific printer
 pdf_folder_print.exe --printer "HP LaserJet Pro MFP" "C:\Exports\March"
 
+# Skip the confirmation prompt (for automation / scheduled tasks)
+pdf_folder_print.exe --yes "C:\Exports\March"
+
 # Override render DPI (default: printer-native)
 pdf_folder_print.exe --dpi 300 "C:\Exports\March"
 
@@ -97,6 +100,9 @@ pdf_folder_print.exe --delay 2.0 "C:\Exports\March"
 
 # List all available printers
 pdf_folder_print.exe --list-printers
+
+# Show the version
+pdf_folder_print.exe --version
 
 # Force GUI mode
 pdf_folder_print.exe --gui
@@ -122,11 +128,11 @@ The GUI provides the same functionality with a visual interface:
 
 - **Folder browser** with path entry
 - **Printer dropdown** (auto-detects all installed printers, default pre-selected)
-- **Dry-run checkbox** + dedicated Preview button
+- **Delay field** — configurable pause between print jobs (same as CLI `--delay`)
+- **Dedicated Preview button** (dry-run) + Print button with confirmation dialog
 - **Progress bar** with file counter
 - **Dark-themed log window** with syntax highlighting
-- **Threaded execution** — UI stays responsive during printing
-- **Confirmation dialog** before actual printing
+- **Threaded execution** — UI stays responsive during printing; the window shows the app icon (BAUER GROUP)
 
 ---
 
@@ -135,18 +141,16 @@ The GUI provides the same functionality with a visual interface:
 The scaling logic mirrors Adobe Reader's "Fit" option:
 
 1. **Read PDF page dimensions** from metadata (in PDF points, 1pt = 1/72 inch)
-2. **Detect orientation** — if width > height → landscape, else portrait
-3. **Switch printer orientation** via `DEVMODE.Orientation` + `ResetDC()` (only when orientation changes)
-4. **Re-read printer dimensions** — after `ResetDC`, the printable area (HORZRES/VERTRES) reflects the new orientation
-5. **Calculate uniform scale factor** — `min(printable_width / pdf_width, printable_height / pdf_height)` — this scales both up and down
-6. **Render at target resolution** — zoom factor computed so the rasterized bitmap matches the target pixel dimensions exactly (no GDI bitmap rescaling)
-7. **Center on page** — offset to place the content in the middle of the printable area
+2. **Render the page to a bitmap** — zoom factor computed so the rasterized bitmap matches the printer's native resolution (or a manual `--dpi` override)
+3. **Detect the best orientation** — the fit math compares two placements: the bitmap as-is vs. rotated 90°. Whichever yields the higher scale factor (= better page fill) is used. This achieves the same result as switching the printer's orientation, but works on all pywin32 versions without DEVMODE/`ResetDC()`
+4. **Calculate uniform scale factor** — `min(printable_width / bitmap_width, printable_height / bitmap_height)` — this scales both up and down
+5. **Center on page** — offset to place the content in the middle of the printable area
 
 This means:
 - An A5 PDF on an A4 printer → scaled **up** to fill the page
 - An A3 PDF on an A4 printer → scaled **down** to fit
-- A landscape PDF → printer switches to landscape, then fit-to-page within that orientation
-- Mixed-orientation PDFs → each page triggers orientation switch as needed
+- A landscape PDF on portrait paper → the bitmap is rotated 90° so the landscape content fills the page
+- Mixed-orientation PDFs → the orientation is decided independently for every page
 
 ---
 
@@ -193,13 +197,19 @@ python build.py --clean
 python build.py --clean-all
 ```
 
-The resulting `dist/pdf_folder_print.exe` is a single file (~35-45 MB) that runs on any Windows machine without Python installed.
+The resulting `dist/pdf_folder_print.exe` is a single file (~110-120 MB) that runs on any Windows machine without Python installed.
 
 ### Build Requirements
 
 - Python 3.10+
 - Windows (the build uses `pywin32` which is Windows-only)
 - Internet access (for pip to download dependencies)
+
+The EXE and GUI window icons (`assets/icon.ico`, `assets/icon.png`) are the
+BAUER GROUP corporate icon, generated from the Corporate Identity project
+(`CorporateIdentity-BAUERGROUP`). The multi-size `.ico` was produced from
+`bauer-group-icon-512.png` and is committed so the build does not depend on
+that repository.
 
 ---
 

@@ -9,12 +9,21 @@ that the UI polls via ``root.after``.
 from __future__ import annotations
 
 import queue
+import sys
 import threading
 import time
 from pathlib import Path
 
 from .core import collect_pdfs, get_pdf_info
 from .printer import get_available_printers, get_default_printer, print_pdf_file
+
+
+def _asset_path(name: str) -> Path:
+    """Locate bundled assets (works from source checkout and frozen EXE)."""
+    if getattr(sys, "frozen", False):
+        return Path(getattr(sys, "_MEIPASS", Path(sys.executable).parent)) / "assets" / name
+    # source layout: src/pdf_folder_print/gui.py → project root/assets
+    return Path(__file__).resolve().parents[2] / "assets" / name
 
 
 def gui_main() -> None:
@@ -26,7 +35,7 @@ def gui_main() -> None:
 
         BG = "#f5f5f5"
         FRAME_BG = "#ffffff"
-        ACCENT = "#1a56db"
+        ACCENT = "#FF8500"  # BAUER GROUP brand orange-500
         SUCCESS = "#16a34a"
         ERROR = "#dc2626"
 
@@ -40,12 +49,21 @@ def gui_main() -> None:
             self.root.minsize(700, 550)
             self.root.configure(bg=self.BG)
 
+            self._set_window_icon()
             self._setup_style()
             self._build_ui()
             self._show_welcome()
             self.root.after(100, self._poll_queue)
 
         # ── Setup ──────────────────────────────────────────────
+        def _set_window_icon(self):
+            try:
+                icon = tk.PhotoImage(file=str(_asset_path("icon.png")))
+                self.root.iconphoto(True, icon)  # keep a reference to avoid GC
+                self._icon_ref = icon
+            except Exception:
+                pass  # cosmetic only – never block startup over an icon
+
         def _setup_style(self):
             style = ttk.Style()
             style.theme_use("clam")
@@ -57,7 +75,20 @@ def gui_main() -> None:
             style.configure("CardBold.TLabel", background=self.FRAME_BG, font=("Segoe UI", 10, "bold"))
             style.configure("Status.TLabel", background=self.BG, font=("Segoe UI", 10))
             style.configure("Accent.TButton", font=("Segoe UI", 11, "bold"), padding=(20, 10))
+            style.map(
+                "Accent.TButton",
+                background=[("active", "#EA6D00"), ("disabled", "#FFE0BF")],  # orange-600 / dimmed
+                foreground=[("disabled", "#AAAAAA")],
+            )
+            style.configure("Accent.TButton", background=self.ACCENT, foreground="white")
             style.configure("Secondary.TButton", font=("Segoe UI", 10), padding=(12, 6))
+            style.configure(
+                "Horizontal.TProgressbar",
+                troughcolor=self.FRAME_BG,
+                background=self.ACCENT,
+                lightcolor=self.ACCENT,
+                darkcolor=self.ACCENT,
+            )
 
         def _build_ui(self):
             # State
@@ -103,6 +134,28 @@ def gui_main() -> None:
                 width=50,
             )
             self.combo_printer.pack(side="right", fill="x", expand=True, padx=(10, 0))
+
+            # Delay between print jobs
+            row_delay = ttk.Frame(settings, style="Card.TFrame")
+            row_delay.pack(fill="x", padx=15, pady=(5, 10))
+            ttk.Label(row_delay, text="⏱️ Delay:", style="CardBold.TLabel").pack(side="left")
+            self.delay_var = tk.StringVar(value="1.0")
+            delay_spin = ttk.Spinbox(
+                row_delay,
+                textvariable=self.delay_var,
+                from_=0.0,
+                to=10.0,
+                increment=0.5,
+                width=6,
+                font=("Segoe UI", 10),
+            )
+            delay_spin.pack(side="right", padx=(10, 0))
+            ttk.Label(
+                row_delay,
+                text="seconds between print jobs",
+                style="Card.TLabel",
+                foreground="#888",
+            ).pack(side="right")
 
             # Buttons
             btn_frame = ttk.Frame(self.root)
@@ -224,6 +277,12 @@ def gui_main() -> None:
             return p
 
         # ── Actions ────────────────────────────────────────────
+        def _read_delay(self) -> float:
+            try:
+                return max(0.0, float(self.delay_var.get().replace(",", ".")))
+            except ValueError:
+                return 1.0
+
         def start_preview(self):
             root_path = self.validate()
             if not root_path:
@@ -232,7 +291,9 @@ def gui_main() -> None:
             self.set_running(True)
             self.progress_var.set(0)
             threading.Thread(
-                target=self._run_job, args=(root_path, self.printer_var.get(), True), daemon=True
+                target=self._run_job,
+                args=(root_path, self.printer_var.get(), True, self._read_delay()),
+                daemon=True,
             ).start()
 
         def start_print(self):
@@ -250,19 +311,21 @@ def gui_main() -> None:
             self.set_running(True)
             self.progress_var.set(0)
             threading.Thread(
-                target=self._run_job, args=(root_path, printer, False), daemon=True
+                target=self._run_job,
+                args=(root_path, printer, False, self._read_delay()),
+                daemon=True,
             ).start()
 
         # ── Worker (runs in background thread) ─────────────────
-        def _run_job(self, root_path: Path, printer: str, dry_run: bool):
+        def _run_job(self, root_path: Path, printer: str, dry_run: bool, delay: float):
             try:
-                self._job_inner(root_path, printer, dry_run)
+                self._job_inner(root_path, printer, dry_run, delay)
             except Exception as e:  # unexpected failure – surface it in the log
                 self.ui_queue.put(("log", f"\n⚠ Unexpected error: {e}", "error"))
             finally:
                 self.ui_queue.put(("running", False))
 
-        def _job_inner(self, root_path: Path, printer: str, dry_run: bool):
+        def _job_inner(self, root_path: Path, printer: str, dry_run: bool, delay: float):
             q = self.ui_queue
             pdfs = collect_pdfs(root_path)
             if not pdfs:
@@ -304,10 +367,11 @@ def gui_main() -> None:
                     if n > 0:
                         orient = "landscape" if w > h else "portrait"
                         info = f"{n} page{'s' if n != 1 else ''}, {w:.0f}×{h:.0f}mm ({orient})"
+                        ok_count += 1
                     else:
-                        info = "?"
-                    q.put(("log", f"  📄 {pdf_path.name}  →  {info}", "info"))
-                    ok_count += 1
+                        info = "? (unreadable)"
+                        fail_count += 1
+                    q.put(("log", f"  📄 {pdf_path.name}  →  {info}", "info" if fail_count == 0 or n > 0 else "error"))
                 else:
                     q.put(("log", f"  🖨️ {pdf_path.name}...", "info"))
                     ok, pages, err = print_pdf_file(pdf_path, printer)
@@ -318,8 +382,8 @@ def gui_main() -> None:
                     else:
                         q.put(("log", f"     ✗ {err}", "error"))
                         fail_count += 1
-                    if i < len(pdfs) - 1:
-                        time.sleep(1.0)
+                    if i < len(pdfs) - 1 and delay > 0:
+                        time.sleep(delay)
 
                 pct = (i + 1) / len(pdfs) * 100
                 q.put(("progress", pct))

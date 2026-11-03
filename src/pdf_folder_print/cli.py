@@ -33,6 +33,9 @@ def cli_main() -> None:
     parser.add_argument("--dpi", type=int, default=None, help="Render DPI override (default: printer-native)")
     parser.add_argument("--delay", type=float, default=1.0, help="Delay between print jobs in seconds")
     parser.add_argument("--list-printers", action="store_true", help="List available printers and exit")
+    parser.add_argument(
+        "--yes", "-y", action="store_true", help="Start printing without confirmation prompt (for automation)"
+    )
     parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     args = parser.parse_args()
 
@@ -118,7 +121,7 @@ def cli_main() -> None:
     console.print(tree)
     console.print()
 
-    if not args.dry_run:
+    if not args.dry_run and not args.yes:
         answer = console.input(f"[bold]Start printing {len(pdfs)} files? [y/N][/] ").strip().lower()
         if answer not in ("y", "yes", "j", "ja"):
             console.print("[dim]Cancelled.[/]")
@@ -129,6 +132,7 @@ def cli_main() -> None:
     fail_count = 0
     total_pages = 0
     current_group = None
+    unreadable: list[str] = []
 
     with Progress(
         SpinnerColumn(),
@@ -159,9 +163,11 @@ def cli_main() -> None:
                         f"[dim]{w:.0f}×{h:.0f}mm[/]  "
                         f"[{orient_color}]{orient}[/]"
                     )
+                    ok_count += 1
                 else:
                     progress.console.print(f"   [dim]📄[/] {pdf_path.name}  [red]→ unreadable[/]")
-                ok_count += 1
+                    fail_count += 1
+                    unreadable.append(pdf_path.name)
             else:
                 progress.update(task, description=f"[cyan]{pdf_path.name}")
                 ok, pages, err = print_pdf_file(pdf_path, printer_name, args.dpi)
@@ -185,13 +191,25 @@ def cli_main() -> None:
     console.print()
 
     if args.dry_run:
-        result_table = Table(box=box.ROUNDED, border_style="yellow", title="[bold]Dry-Run Summary[/]")
+        style = "yellow" if fail_count == 0 else "red"
+        result_table = Table(box=box.ROUNDED, border_style=style, title="[bold]Dry-Run Summary[/]")
         result_table.add_column("", style="dim")
         result_table.add_column("", style="bold")
         result_table.add_row("Files", f"{ok_count}")
+        if unreadable:
+            result_table.add_row("Unreadable", f"[bold red]{fail_count} files[/]")
         result_table.add_row("Groups", f"{len(groups)}")
-        result_table.add_row("Status", "[yellow]Preview only – nothing printed[/]")
+        result_table.add_row(
+            "Status",
+            "[yellow]Preview only – nothing printed[/]"
+            if fail_count == 0
+            else "[red]✗ Unreadable PDFs detected[/]",
+        )
         console.print(result_table)
+        if unreadable:
+            console.print()
+            for name in unreadable:
+                console.print(f"  [bold red]✗[/] [red]{name}[/]")
     else:
         style = "green" if fail_count == 0 else "red"
         result_table = Table(box=box.ROUNDED, border_style=style, title="[bold]Print Summary[/]")
@@ -206,7 +224,10 @@ def cli_main() -> None:
 
     console.print()
 
-    if not args.dry_run:
+    # "Press Enter" is only useful when the window would close immediately,
+    # i.e. for the packaged EXE with an attached console. Regular terminal
+    # sessions and automation (Task Scheduler, pipes) must not block.
+    if not args.dry_run and getattr(sys, "frozen", False) and sys.stdin is not None and sys.stdin.isatty():
         console.input("[dim]Press Enter to exit...[/]")
 
     sys.exit(1 if fail_count > 0 else 0)
