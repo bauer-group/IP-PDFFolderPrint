@@ -1,3 +1,31 @@
+# Changelog
+
+All notable changes to this project are documented here. This file is maintained
+automatically by [semantic-release](https://github.com/semantic-release/semantic-release)
+on every release to `main`.
+
+## [0.3.0](https://github.com/bauer-group/IP-PDFFolderPrint/compare/v0.2.1...v0.3.0) (2026-11-03)
+
+### 🚀 Features
+
+* **app:** add --yes flag, fail on unreadable PDFs, GUI delay, and branded EXE icon ([274a63b](https://github.com/bauer-group/IP-PDFFolderPrint/commit/274a63bcaf2e769089c593326355e7b572f55a37)), references [#FF8500](https://github.com/bauer-group/IP-PDFFolderPrint/issues/FF8500)
+* **app:** cancel, print report, printer status, retries, natural sort, settings persistence ([27183d4](https://github.com/bauer-group/IP-PDFFolderPrint/commit/27183d4840ad36e8548e00d3f153a72ab6203cd8))
+
+### 🐛 Bug Fixes
+
+* **ci:** added the missing permissions block ([6e8af5b](https://github.com/bauer-group/IP-PDFFolderPrint/commit/6e8af5bab8ae9485e99ef69a0a7bb681655922eb))
+
+### ♻️ Code Refactoring
+
+* restructure into src package with tests, pinned deps and CI pipeline ([a24b2d1](https://github.com/bauer-group/IP-PDFFolderPrint/commit/a24b2d1fbdcafd856c58ffeefcda098d22280609))
+
+### 🔧 Maintenance
+
+* **ci:** removed issue AI summary workflow ([b920e0d](https://github.com/bauer-group/IP-PDFFolderPrint/commit/b920e0d2743d839a85dbebb1ce286c4421268483)), references [bauer-group/automation-templates#105](https://github.com/bauer-group/automation-templates/issues/105)
+* **ci:** removed redundant teams notification ([d570fb6](https://github.com/bauer-group/IP-PDFFolderPrint/commit/d570fb6dcf077bfc6e9923edff924c454886840a))
+* **ci:** use Python 3.14 for CI lint, tests and EXE build ([1b1e32f](https://github.com/bauer-group/IP-PDFFolderPrint/commit/1b1e32f1c48caac8f15254cd1c86e6d9329b3f58))
+* **codeowners:** reassigned ownership to core team [skip ci] ([7bcc1ab](https://github.com/bauer-group/IP-PDFFolderPrint/commit/7bcc1ab4bf5ddb0c34888a3448a1896ec356c18b))
+
 ## [0.2.1](https://github.com/bauer-group/IP-PDFFolderPrint/compare/v0.2.0...v0.2.1) (2026-04-02)
 
 ### 🐛 Bug Fixes
