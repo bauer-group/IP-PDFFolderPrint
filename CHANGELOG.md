@@ -4,6 +4,21 @@ All notable changes to this project are documented here. This file is maintained
 automatically by [semantic-release](https://github.com/semantic-release/semantic-release)
 on every release to `main`.
 
+## [0.5.0](https://github.com/bauer-group/IP-PDFFolderPrint/compare/v0.4.1...v0.5.0) (2026-11-03)
+
+### 🚀 Features
+
+* **app:** change defaults to no inter-job delay and 1 retry ([15b6934](https://github.com/bauer-group/IP-PDFFolderPrint/commit/15b69340d89b2a2546b2fa6a004b52d52f4b7ec0))
+
+### 💄 UI/UX Improvements
+
+* **cli:** wrap argparse help lines to satisfy ruff ([953d083](https://github.com/bauer-group/IP-PDFFolderPrint/commit/953d083e09a21b7095a52a023a8dc724cebc9c6a))
+* **cli:** wrap long argparse line ([48ac6f2](https://github.com/bauer-group/IP-PDFFolderPrint/commit/48ac6f2ee1e140e27e4f7640b47e9bd228439d89))
+
+### 🔧 Maintenance
+
+* **ci:** bump actions/checkout and actions/setup-python to v7 ([117bebe](https://github.com/bauer-group/IP-PDFFolderPrint/commit/117bebeab30936abd883a182b0d68a2d7349f015)), references [#1](https://github.com/bauer-group/IP-PDFFolderPrint/issues/1) [#2](https://github.com/bauer-group/IP-PDFFolderPrint/issues/2)
+
 ## [0.4.1](https://github.com/bauer-group/IP-PDFFolderPrint/compare/v0.4.0...v0.4.1) (2026-11-03)
 
 ### 🐛 Bug Fixes
