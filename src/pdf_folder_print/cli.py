@@ -33,7 +33,10 @@ def cli_main() -> None:
     parser.add_argument("--printer", default=None, help="Printer name (default: system default)")
     parser.add_argument("--dpi", type=int, default=None, help="Render DPI override (default: printer-native)")
     parser.add_argument(
-        "--delay", type=float, default=0.0, help="Delay between print jobs in seconds (default: 0, spooler handles pacing)"
+        "--delay",
+        type=float,
+        default=0.0,
+        help="Delay between print jobs in seconds (default: 0, spooler handles pacing)",
     )
     parser.add_argument(
         "--retries", type=int, default=1, metavar="N", help="Retry failed files up to N times (default: 1)"
