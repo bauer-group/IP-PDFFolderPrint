@@ -1,6 +1,6 @@
 # Runtime dependencies (pinned for reproducible builds)
 pymupdf==1.27.1
-Pillow==12.1.1
+Pillow==13.0.0
 pywin32==311
 rich==15.0.0
 
