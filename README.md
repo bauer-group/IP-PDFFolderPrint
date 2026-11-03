@@ -56,8 +56,10 @@ That's it. Every PDF gets printed in order, correctly scaled, with automatic por
 ### Option A: Run with Python
 
 ```bash
-pip install pymupdf Pillow pywin32 rich
-python src/pdf_folder_print.py "C:\path\to\folder"
+pip install -e .
+pdf-folder-print "C:\path\to\folder"
+# oder äquivalent:
+python -m pdf_folder_print "C:\path\to\folder"
 ```
 
 ### Option B: Build standalone EXE
@@ -233,6 +235,32 @@ For building the standalone EXE:
 - **One subfolder level** — does not recurse into sub-subfolders (intentional for structured export folders)
 - **Raster-based printing** — PDFs are rasterized to bitmaps before printing (at printer-native DPI, so quality is equivalent to any viewer, but vector data is not preserved in the spooler)
 - **No duplex/staple control** — uses the printer's default tray and duplex settings (can be changed in printer preferences before printing)
+
+---
+
+## Development
+
+```bash
+pip install -r requirements-dev.txt
+python -m pytest                        # run unit tests
+python -m ruff check src tests build.py # lint
+```
+
+The package layout lives under `src/pdf_folder_print/`:
+
+| Module        | Purpose                                                |
+|---------------|--------------------------------------------------------|
+| `version.py`  | single source of truth for the version                 |
+| `core.py`     | file collection, PDF info, natural sort (no win32)     |
+| `scaling.py`  | pure fit-to-page / orientation math (no win32)         |
+| `printer.py`  | Windows GDI printing                                   |
+| `cli.py`      | Rich console interface                                 |
+| `gui.py`      | tkinter interface                                      |
+
+Dependency versions are pinned in `pyproject.toml` / `requirements*.txt`
+for reproducible builds. Runtime deps in `requirements.txt`, build deps
+(`pyinstaller`) in `requirements-build.txt`, dev deps in
+`requirements-dev.txt`.
 
 ---
 

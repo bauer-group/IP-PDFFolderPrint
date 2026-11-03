@@ -1,0 +1,58 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pdf-folder-print"
+description = "Structured PDF batch printing from folder trees on Windows"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { file = "LICENSE" }
+authors = [{ name = "BAUER GROUP" }]
+keywords = ["pdf", "batch-printing", "windows", "printing"]
+classifiers = [
+    "Environment :: Console",
+    "Environment :: Win32 (MS Windows)",
+    "Intended Audience :: End Users/Desktop",
+    "Operating System :: Microsoft :: Windows :: 10",
+    "Operating System :: Microsoft :: Windows :: 11",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Printing",
+]
+dynamic = ["version"]
+dependencies = [
+    "pymupdf==1.27.1",
+    "Pillow==12.1.1",
+    "pywin32==311 ; sys_platform == 'win32'",
+    "rich==15.0.0",
+]
+
+[project.optional-dependencies]
+build = ["pyinstaller==6.22.3"]
+dev = ["pytest==8.4.2", "ruff==0.16.5"]
+
+[project.scripts]
+pdf-folder-print = "pdf_folder_print.__main__:main"
+
+[tool.setuptools]
+package-dir = { "" = "src" }
+packages = ["pdf_folder_print"]
+
+[tool.setuptools.dynamic]
+version = { attr = "pdf_folder_print.version.__version__" }
+
+[tool.ruff]
+line-length = 120
+target-version = "py310"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "SIM"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+pythonpath = ["src"]

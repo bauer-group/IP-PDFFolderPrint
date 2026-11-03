@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 Build script for pdf_folder_print.exe
 =======================================
@@ -28,10 +27,9 @@ import venv
 from pathlib import Path
 
 # ── Ensure UTF-8 output on Windows (CI runners default to cp1252) ────
-if os.name == "nt":
-    if hasattr(sys.stdout, "reconfigure"):
-        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
-        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+if os.name == "nt" and hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 
 # ── Configuration ─────────────────────────────────────────────────────
 SCRIPT_DIR = Path(__file__).parent.resolve()
@@ -39,10 +37,13 @@ VENV_DIR = SCRIPT_DIR / ".venv"
 DIST_DIR = SCRIPT_DIR / "dist"
 BUILD_DIR = SCRIPT_DIR / "build"
 SPEC_FILE = SCRIPT_DIR / "pdf_folder_print.spec"
-MAIN_SCRIPT = SCRIPT_DIR / "src" / "pdf_folder_print.py"
+SRC_DIR = SCRIPT_DIR / "src"
+PACKAGE_DIR = SRC_DIR / "pdf_folder_print"
+ENTRY_SCRIPT = PACKAGE_DIR / "__main__.py"
 EXE_NAME = "pdf_folder_print"
 
-DEPENDENCIES = ["pymupdf", "Pillow", "pywin32", "rich", "pyinstaller"]
+RUNTIME_REQUIREMENTS = SCRIPT_DIR / "requirements.txt"
+BUILD_REQUIREMENTS = SCRIPT_DIR / "requirements-build.txt"
 
 if sys.platform == "win32":
     VENV_PYTHON = VENV_DIR / "Scripts" / "python.exe"
@@ -98,24 +99,24 @@ def ensure_venv():
 def install_deps(ci: bool = False):
     if ci:
         run(
-            [sys.executable, "-m", "pip", "install", "-r", str(SCRIPT_DIR / "requirements.txt")],
-            "Installing from requirements.txt (CI)",
+            [sys.executable, "-m", "pip", "install", "-r", str(RUNTIME_REQUIREMENTS), "-r", str(BUILD_REQUIREMENTS)],
+            "Installing pinned dependencies from requirements files (CI)",
         )
     else:
         run([str(VENV_PIP), "install", "--upgrade", "pip"], "Upgrading pip")
         run(
-            [str(VENV_PIP), "install", "--upgrade"] + DEPENDENCIES,
-            f"Installing: {', '.join(DEPENDENCIES)}",
+            [str(VENV_PIP), "install", "-r", str(RUNTIME_REQUIREMENTS), "-r", str(BUILD_REQUIREMENTS)],
+            "Installing pinned dependencies (runtime + build)",
         )
     log("All dependencies installed", "✅")
 
 
 def check_main_script():
-    if not MAIN_SCRIPT.exists():
-        log(f"Main script not found: {MAIN_SCRIPT}", "❌")
-        log("build.py and pdf_folder_print.py must be in the same directory.", "💡")
+    if not ENTRY_SCRIPT.exists():
+        log(f"Main script not found: {ENTRY_SCRIPT}", "❌")
+        log("Expected package layout: src/pdf_folder_print/__main__.py", "💡")
         sys.exit(1)
-    log(f"Main script: {MAIN_SCRIPT.name}", "✅")
+    log(f"Entry script: {ENTRY_SCRIPT.relative_to(SCRIPT_DIR)}", "✅")
 
 
 def build_exe(ci: bool = False):
@@ -126,10 +127,9 @@ def build_exe(ci: bool = False):
         if sys.platform == "win32":
             pyinstaller = pyinstaller.with_suffix(".exe")
 
-        if pyinstaller.exists():
-            pyinstaller_cmd = [str(pyinstaller)]
-        else:
-            pyinstaller_cmd = [str(VENV_PYTHON), "-m", "PyInstaller"]
+        pyinstaller_cmd = (
+            [str(pyinstaller)] if pyinstaller.exists() else [str(VENV_PYTHON), "-m", "PyInstaller"]
+        )
 
     cmd = pyinstaller_cmd + [
         "--onefile",
@@ -140,6 +140,7 @@ def build_exe(ci: bool = False):
         "--distpath", str(DIST_DIR),
         "--workpath", str(BUILD_DIR),
         "--specpath", str(SCRIPT_DIR),
+        "--paths", str(SRC_DIR),
         "--hidden-import=win32print",
         "--hidden-import=win32ui",
         "--hidden-import=win32api",
@@ -158,7 +159,7 @@ def build_exe(ci: bool = False):
         "--hidden-import=rich.box",
         "--collect-all", "pymupdf",
         "--collect-all", "rich",
-        str(MAIN_SCRIPT),
+        str(ENTRY_SCRIPT),
     ]
 
     run(cmd, "PyInstaller build (1-2 minutes)...")
