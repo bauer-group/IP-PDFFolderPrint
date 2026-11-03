@@ -129,3 +129,97 @@ def test_dry_run_valid_pdf_exits_0(fake_printers, monkeypatch, tmp_path):
     with pytest.raises(SystemExit) as exc:
         run_cli(monkeypatch, "--dry-run", str(tmp_path))
     assert exc.value.code == 0
+
+
+def test_retries_recover_from_transient_failure(fake_printers, monkeypatch, tmp_path):
+    import fitz
+
+    doc = fitz.open()
+    doc.new_page()
+    doc.save(tmp_path / "a.pdf")
+    doc.close()
+
+    attempts = []
+
+    def flaky_print(*args, **kwargs):
+        attempts.append(1)
+        if len(attempts) < 3:
+            return False, 0, "spooler hiccup"
+        return True, 2, ""
+
+    monkeypatch.setattr(cli, "print_pdf_file", flaky_print)
+    monkeypatch.setattr(cli.time, "sleep", lambda s: None)
+
+    with pytest.raises(SystemExit) as exc:
+        run_cli(monkeypatch, "--yes", "--retries", "2", "--delay", "0", str(tmp_path))
+    assert exc.value.code == 0
+    assert len(attempts) == 3
+
+
+def test_retries_exhausted_exits_1(fake_printers, monkeypatch, tmp_path):
+    import fitz
+
+    doc = fitz.open()
+    doc.new_page()
+    doc.save(tmp_path / "a.pdf")
+    doc.close()
+
+    attempts = []
+    monkeypatch.setattr(
+        cli, "print_pdf_file", lambda *a, **kw: attempts.append(1) or (False, 0, "broken")
+    )
+    monkeypatch.setattr(cli.time, "sleep", lambda s: None)
+
+    with pytest.raises(SystemExit) as exc:
+        run_cli(monkeypatch, "--yes", "--retries", "2", "--delay", "0", str(tmp_path))
+    assert exc.value.code == 1
+    assert len(attempts) == 3  # 1 initial + 2 retries
+
+
+def test_cancelled_by_printer_returns_exit_130(fake_printers, monkeypatch, tmp_path):
+    import fitz
+
+    doc = fitz.open()
+    doc.new_page()
+    doc.save(tmp_path / "a.pdf")
+    doc.close()
+
+    monkeypatch.setattr(cli, "print_pdf_file", lambda *a, **kw: (False, 0, "cancelled"))
+
+    with pytest.raises(SystemExit) as exc:
+        run_cli(monkeypatch, "--yes", "--delay", "0", str(tmp_path))
+    assert exc.value.code == 130
+
+
+def test_printer_problem_blocks_without_yes(fake_printers, monkeypatch, tmp_path):
+    import fitz
+
+    doc = fitz.open()
+    doc.new_page()
+    doc.save(tmp_path / "a.pdf")
+    doc.close()
+
+    monkeypatch.setattr(cli, "printer_status", lambda name: ["offline"])
+    prompt = _RecordingConsole()  # answers "n" to "Continue anyway?"
+    monkeypatch.setattr(cli.Console, "input", prompt)
+
+    with pytest.raises(SystemExit) as exc:
+        run_cli(monkeypatch, "--delay", "0", str(tmp_path))
+    assert exc.value.code == 0
+    assert prompt.called == 1  # only the "continue anyway" prompt
+
+
+def test_printer_problem_bypassed_with_yes(fake_printers, monkeypatch, tmp_path):
+    import fitz
+
+    doc = fitz.open()
+    doc.new_page()
+    doc.save(tmp_path / "a.pdf")
+    doc.close()
+
+    monkeypatch.setattr(cli, "printer_status", lambda name: ["offline"])
+    monkeypatch.setattr(cli, "print_pdf_file", lambda *a, **kw: (True, 1, ""))
+
+    with pytest.raises(SystemExit) as exc:
+        run_cli(monkeypatch, "--yes", "--delay", "0", str(tmp_path))
+    assert exc.value.code == 0

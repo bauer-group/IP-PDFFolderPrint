@@ -18,7 +18,8 @@ from rich.tree import Tree
 
 from . import __version__
 from .core import collect_pdfs, get_pdf_info
-from .printer import get_available_printers, get_default_printer, print_pdf_file
+from .printer import get_available_printers, get_default_printer, print_pdf_file, printer_status
+from .report import PrintReport
 
 
 def cli_main() -> None:
@@ -32,6 +33,18 @@ def cli_main() -> None:
     parser.add_argument("--printer", default=None, help="Printer name (default: system default)")
     parser.add_argument("--dpi", type=int, default=None, help="Render DPI override (default: printer-native)")
     parser.add_argument("--delay", type=float, default=1.0, help="Delay between print jobs in seconds")
+    parser.add_argument(
+        "--retries", type=int, default=0, metavar="N", help="Retry failed files up to N times (default: 0)"
+    )
+    parser.add_argument(
+        "--natural-sort", action="store_true", help="Order files naturally (file2.pdf before file10.pdf)"
+    )
+    parser.add_argument(
+        "--report", metavar="PATH", help="Write a print report (one row per file) to this path"
+    )
+    parser.add_argument(
+        "--report-format", choices=("csv", "json"), default="csv", help="Report format (default: csv)"
+    )
     parser.add_argument("--list-printers", action="store_true", help="List available printers and exit")
     parser.add_argument(
         "--yes", "-y", action="store_true", help="Start printing without confirmation prompt (for automation)"
@@ -82,7 +95,7 @@ def cli_main() -> None:
     else:
         printer_name = get_default_printer()
 
-    pdfs = collect_pdfs(root)
+    pdfs = collect_pdfs(root, natural=args.natural_sort)
     if not pdfs:
         console.print("[yellow]No PDF files found.[/]")
         sys.exit(0)
@@ -121,6 +134,18 @@ def cli_main() -> None:
     console.print(tree)
     console.print()
 
+    # Fail fast on an unusable printer instead of dumping 50 jobs into the queue
+    if not args.dry_run:
+        problems = printer_status(printer_name)
+        if problems:
+            console.print(f"[bold yellow]⚠ Printer status:[/] [yellow]{', '.join(problems)}[/]")
+            if not args.yes:
+                answer = console.input("[bold]Continue anyway? [y/N][/] ").strip().lower()
+                if answer not in ("y", "yes", "j", "ja"):
+                    console.print("[dim]Cancelled.[/]")
+                    sys.exit(0)
+            console.print()
+
     if not args.dry_run and not args.yes:
         answer = console.input(f"[bold]Start printing {len(pdfs)} files? [y/N][/] ").strip().lower()
         if answer not in ("y", "yes", "j", "ja"):
@@ -128,65 +153,121 @@ def cli_main() -> None:
             sys.exit(0)
         console.print()
 
+    report = None
+    if args.report:
+        report = PrintReport(args.report, fmt=args.report_format)
+
     ok_count = 0
     fail_count = 0
     total_pages = 0
     current_group = None
     unreadable: list[str] = []
+    cancelled = False
+    retry_count = 0
 
-    with Progress(
-        SpinnerColumn(),
-        TextColumn("[progress.description]{task.description}"),
-        BarColumn(bar_width=30),
-        TaskProgressColumn(),
-        TextColumn("•"),
-        TimeRemainingColumn(),
-        console=console,
-        transient=False,
-    ) as progress:
+    def _finish_report():
+        if report is not None:
+            report.close()
+            console.print(f"[dim]Report written: {report.path}[/]")
 
-        task = progress.add_task("[cyan]Processing...", total=len(pdfs))
+    try:
+        with Progress(
+            SpinnerColumn(),
+            TextColumn("[progress.description]{task.description}"),
+            BarColumn(bar_width=30),
+            TaskProgressColumn(),
+            TextColumn("•"),
+            TimeRemainingColumn(),
+            console=console,
+            transient=False,
+        ) as progress:
 
-        for i, (group, pdf_path) in enumerate(pdfs):
-            if group != current_group:
-                current_group = group
-                progress.console.print(f"\n[bold yellow]📁 {group}[/]")
+            task = progress.add_task("[cyan]Processing...", total=len(pdfs))
 
-            if args.dry_run:
-                n, w, h = get_pdf_info(pdf_path)
-                if n > 0:
-                    orient = "landscape" if w > h else "portrait"
-                    orient_color = "magenta" if w > h else "blue"
-                    progress.console.print(
-                        f"   [dim]📄[/] {pdf_path.name}  "
-                        f"[dim]→[/]  {n} page{'s' if n != 1 else ''}  "
-                        f"[dim]{w:.0f}×{h:.0f}mm[/]  "
-                        f"[{orient_color}]{orient}[/]"
-                    )
-                    ok_count += 1
+            for i, (group, pdf_path) in enumerate(pdfs):
+                if group != current_group:
+                    current_group = group
+                    progress.console.print(f"\n[bold yellow]📁 {group}[/]")
+
+                if args.dry_run:
+                    n, w, h = get_pdf_info(pdf_path)
+                    if n > 0:
+                        orient = "landscape" if w > h else "portrait"
+                        orient_color = "magenta" if w > h else "blue"
+                        progress.console.print(
+                            f"   [dim]📄[/] {pdf_path.name}  "
+                            f"[dim]→[/]  {n} page{'s' if n != 1 else ''}  "
+                            f"[dim]{w:.0f}×{h:.0f}mm[/]  "
+                            f"[{orient_color}]{orient}[/]"
+                        )
+                        ok_count += 1
+                        if report is not None:
+                            report.add(pdf_path.name, group, n, "dry-run")
+                    else:
+                        progress.console.print(f"   [dim]📄[/] {pdf_path.name}  [red]→ unreadable[/]")
+                        fail_count += 1
+                        unreadable.append(pdf_path.name)
+                        if report is not None:
+                            report.add(pdf_path.name, group, 0, "unreadable", error="cannot open PDF")
                 else:
-                    progress.console.print(f"   [dim]📄[/] {pdf_path.name}  [red]→ unreadable[/]")
-                    fail_count += 1
-                    unreadable.append(pdf_path.name)
-            else:
-                progress.update(task, description=f"[cyan]{pdf_path.name}")
-                ok, pages, err = print_pdf_file(pdf_path, printer_name, args.dpi)
-                if ok:
-                    progress.console.print(
-                        f"   [green]✓[/] {pdf_path.name}  "
-                        f"[dim]{pages} page{'s' if pages != 1 else ''}[/]"
-                    )
-                    ok_count += 1
-                    total_pages += pages
-                else:
-                    progress.console.print(f"   [bold red]✗[/] {pdf_path.name}  [red]{err}[/]")
-                    fail_count += 1
-                if i < len(pdfs) - 1 and args.delay > 0:
-                    time.sleep(args.delay)
+                    progress.update(task, description=f"[cyan]{pdf_path.name}")
+                    pages, err = 0, ""
+                    dur_ms = 0
+                    attempt = 0
+                    t0 = time.perf_counter()
+                    while True:
+                        ok, pages, err = print_pdf_file(pdf_path, printer_name, args.dpi)
+                        dur_ms = int((time.perf_counter() - t0) * 1000)
+                        if ok or attempt >= args.retries or err == "cancelled":
+                            break
+                        attempt += 1
+                        retry_count += 1
+                        progress.console.print(
+                            f"   [yellow]↻ retry {attempt}/{args.retries}[/] [dim]{pdf_path.name}[/]"
+                        )
+                        time.sleep(min(2**attempt, 5))
 
-            progress.update(task, advance=1)
+                    if ok:
+                        progress.console.print(
+                            f"   [green]✓[/] {pdf_path.name}  "
+                            f"[dim]{pages} page{'s' if pages != 1 else ''}[/]"
+                        )
+                        ok_count += 1
+                        total_pages += pages
+                        if report is not None:
+                            report.add(pdf_path.name, group, pages, "ok", duration_ms=dur_ms)
+                    elif err == "cancelled":
+                        cancelled = True
+                        progress.update(task, description="[red]Cancelled")
+                        if report is not None:
+                            report.add(
+                                pdf_path.name,
+                                group,
+                                pages,
+                                "cancelled",
+                                error="aborted by user",
+                                duration_ms=dur_ms,
+                            )
+                        break
+                    else:
+                        progress.console.print(f"   [bold red]✗[/] {pdf_path.name}  [red]{err}[/]")
+                        fail_count += 1
+                        if report is not None:
+                            report.add(pdf_path.name, group, pages, "failed", error=err, duration_ms=dur_ms)
+                    if i < len(pdfs) - 1 and args.delay > 0:
+                        time.sleep(args.delay)
 
-        progress.update(task, description="[green]Done")
+                progress.update(task, advance=1)
+
+            progress.update(task, description="[green]Done")
+
+    except KeyboardInterrupt:
+        # Ctrl+C while waiting between jobs – abort cleanly
+        cancelled = True
+        console.print("\n[bold red]✗ Aborted by user (Ctrl+C)[/]")
+
+    if report is not None:
+        _finish_report()
 
     console.print()
 
@@ -211,15 +292,22 @@ def cli_main() -> None:
             for name in unreadable:
                 console.print(f"  [bold red]✗[/] [red]{name}[/]")
     else:
-        style = "green" if fail_count == 0 else "red"
+        style = "green" if fail_count == 0 and not cancelled else "red"
         result_table = Table(box=box.ROUNDED, border_style=style, title="[bold]Print Summary[/]")
         result_table.add_column("", style="dim")
         result_table.add_column("", style="bold")
         result_table.add_row("Printed", f"[green]{ok_count} files ({total_pages} pages)[/]")
         if fail_count:
             result_table.add_row("Failed", f"[bold red]{fail_count} files[/]")
+        if retry_count:
+            result_table.add_row("Retries", f"{retry_count}")
+        if cancelled:
+            result_table.add_row("Cancelled", "[bold red]✗ aborted by user[/]")
         result_table.add_row("Printer", printer_name)
-        result_table.add_row("Status", "[green]✓ Complete[/]" if fail_count == 0 else "[red]✗ Errors occurred[/]")
+        status = "[green]✓ Complete[/]" if fail_count == 0 and not cancelled else (
+            "[red]✗ Aborted[/]" if cancelled else "[red]✗ Errors occurred[/]"
+        )
+        result_table.add_row("Status", status)
         console.print(result_table)
 
     console.print()
@@ -230,4 +318,4 @@ def cli_main() -> None:
     if not args.dry_run and getattr(sys, "frozen", False) and sys.stdin is not None and sys.stdin.isatty():
         console.input("[dim]Press Enter to exit...[/]")
 
-    sys.exit(1 if fail_count > 0 else 0)
+    sys.exit(130 if cancelled else (1 if fail_count > 0 else 0))

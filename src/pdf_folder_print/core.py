@@ -29,28 +29,35 @@ def natural_sort_key(name: str) -> tuple:
     return tuple(int(p) if p.isdigit() else p.lower() for p in parts)
 
 
-def collect_pdfs(root: Path) -> list[tuple[str, Path]]:
+def collect_pdfs(root: Path, natural: bool = False) -> list[tuple[str, Path]]:
     """
     Collect PDFs: root folder first, then subfolders alphabetically.
+
+    With ``natural=True`` files and folders are ordered naturally
+    ("file2.pdf" before "file10.pdf"); otherwise plain case-insensitive
+    alphabetical order is used.
+
     Returns: list of (group_name, pdf_path) tuples.
     """
+    # both keys operate on the file/folder *name*
+    key = natural_sort_key if natural else str.lower
     results: list[tuple[str, Path]] = []
 
     root_pdfs = sorted(
         [f for f in root.iterdir() if f.is_file() and f.suffix.lower() in PDF_EXTENSIONS],
-        key=lambda p: p.name.lower(),
+        key=lambda p: key(p.name),
     )
     for pdf in root_pdfs:
         results.append(("(Root)", pdf))
 
     subdirs = sorted(
         [d for d in root.iterdir() if d.is_dir()],
-        key=lambda d: d.name.lower(),
+        key=lambda d: key(d.name),
     )
     for subdir in subdirs:
         sub_pdfs = sorted(
             [f for f in subdir.iterdir() if f.is_file() and f.suffix.lower() in PDF_EXTENSIONS],
-            key=lambda p: p.name.lower(),
+            key=lambda p: key(p.name),
         )
         for pdf in sub_pdfs:
             results.append((subdir.name, pdf))

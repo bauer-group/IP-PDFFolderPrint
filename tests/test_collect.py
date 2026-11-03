@@ -90,6 +90,22 @@ def test_single_level_only(tmp_path):
     assert names == [("(Root)", "top.pdf"), ("Sub", "inner.pdf")]
 
 
+def test_natural_sort_option(tmp_path):
+    root = make_tree(
+        tmp_path,
+        "file10.pdf",
+        "file2.pdf",
+        "Sub/10.pdf",
+        "Sub/2.pdf",
+    )
+
+    natural = collect_pdfs(root, natural=True)
+    assert [p.name for _, p in natural] == ["file2.pdf", "file10.pdf", "2.pdf", "10.pdf"]
+
+    alphabetical = collect_pdfs(root)
+    assert [p.name for _, p in alphabetical] == ["file10.pdf", "file2.pdf", "10.pdf", "2.pdf"]
+
+
 def test_empty_directory(tmp_path):
     assert collect_pdfs(tmp_path) == []
 

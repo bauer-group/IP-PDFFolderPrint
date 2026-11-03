@@ -32,6 +32,45 @@ def get_default_printer() -> str:
     return win32print.GetDefaultPrinter()
 
 
+# win32 PRINTER_STATUS_* flags that clearly indicate the printer cannot
+# take jobs right now. Flags not listed here are treated as "unknown" and
+# never block, because they are vendor-dependent.
+_PRINTER_STATUS_FLAGS = {
+    0x00000001: "paused",
+    0x00000002: "error",
+    0x00000004: "pending deletion",
+    0x00000008: "paper jam",
+    0x00000010: "paper out",
+    0x00000040: "paper problem",
+    0x00000080: "offline",
+    0x00000100: "door open",
+    0x00000200: "user intervention required",
+    0x00000400: "out of memory",
+    0x00008000: "no toner",
+}
+
+
+def printer_status(printer_name: str) -> list[str]:
+    """
+    Query a printer's problem flags via the spooler.
+
+    Returns a list of human-readable problem descriptions, e.g.
+    ``["offline", "paper out"]``. Empty list means the printer reports no
+    problems (or only vendor-specific flags we deliberately ignore).
+    """
+    try:
+        handle = win32print.OpenPrinter(printer_name)
+        try:
+            info = win32print.GetPrinter(handle, 2)
+        finally:
+            win32print.ClosePrinter(handle)
+    except Exception as e:
+        return [f"status not queryable ({e})"]
+
+    status = int(info.get("Status", 0) or 0)
+    return [label for bit, label in _PRINTER_STATUS_FLAGS.items() if status & bit]
+
+
 def print_pdf_file(
     pdf_path: Path,
     printer_name: str,
@@ -106,6 +145,14 @@ def print_pdf_file(
             printed_page = page_num + 1
 
         hdc.EndDoc()
+
+    except KeyboardInterrupt:
+        # Ctrl+C / GUI cancel: abort the spool job, don't leave a half-printed doc
+        with contextlib.suppress(Exception):
+            doc.close()
+        with contextlib.suppress(Exception):
+            hdc.AbortDoc()
+        return False, printed_page, "cancelled"
 
     except Exception as e:
         doc.close()

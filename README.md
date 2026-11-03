@@ -42,6 +42,12 @@ That's it. Every PDF gets printed in order, correctly scaled, with automatic por
 - **Structured print order** — root folder first, then subfolders alphabetically, each folder's PDFs sorted alphabetically
 - **Fit-to-Page scaling** — undersized pages scale up, oversized pages scale down, aspect ratio preserved, content centered
 - **Auto orientation** — portrait and landscape detected per page by comparing normal vs. rotated 90° placement and keeping whichever fills the page better (works even for mixed-orientation PDFs)
+- **Cancel anytime** — GUI button (or `Esc`) / `Ctrl+C` in the CLI; the spool job of the current file is aborted cleanly
+- **Print report** — optional CSV or JSON report (one row per file: timestamp, pages, status, error, duration)
+- **Printer status check** — the spooler is queried before printing; offline/paused/no-toner printers warn before jobs are queued (live indicator in the GUI)
+- **Retries** — failed files can be retried automatically with backoff (`--retries`, GUI field)
+- **Natural sort** — optional file order `file2.pdf` before `file10.pdf` (`--natural-sort`, GUI checkbox)
+- **GUI remembers settings** — folder, printer, delay and options are persisted per user (`%APPDATA%\PDFFolderPrint\settings.json`)
 - **Dry-run mode** — preview what would be printed, including page counts, dimensions, and orientation, without sending anything to the printer; unreadable PDFs are flagged and fail the run
 - **GUI and CLI** — double-click for a graphical interface, pass arguments for command-line automation
 - **Rich CLI output** — colored progress bars, folder trees, summary tables via the [Rich](https://github.com/Textualize/rich) library
@@ -92,6 +98,15 @@ pdf_folder_print.exe --printer "HP LaserJet Pro MFP" "C:\Exports\March"
 # Skip the confirmation prompt (for automation / scheduled tasks)
 pdf_folder_print.exe --yes "C:\Exports\March"
 
+# Retry failed files up to 2 times, write a CSV report
+pdf_folder_print.exe --yes --retries 2 --report print_report.csv "C:\Exports\March"
+
+# JSON report instead of CSV
+pdf_folder_print.exe --yes --report report.json --report-format json "C:\Exports\March"
+
+# Natural file order (file2.pdf before file10.pdf)
+pdf_folder_print.exe --natural-sort "C:\Exports\March"
+
 # Override render DPI (default: printer-native)
 pdf_folder_print.exe --dpi 300 "C:\Exports\March"
 
@@ -126,13 +141,17 @@ Renders a table of all available Windows printers with the default printer highl
 
 The GUI provides the same functionality with a visual interface:
 
-- **Folder browser** with path entry
-- **Printer dropdown** (auto-detects all installed printers, default pre-selected)
-- **Delay field** — configurable pause between print jobs (same as CLI `--delay`)
+- **Folder browser** with path entry (press `Enter` to run a preview)
+- **Printer dropdown** with **live status indicator** (`✓ ready` / `⚠ offline, paper out, ...`) — problems are confirmed before a print run starts
+- **Delay** between print jobs and **Retries** for failed files
+- **Natural sort** checkbox for `file2.pdf`-before-`file10.pdf` ordering
+- **Report** checkbox with CSV/JSON format and optional report folder (default: next to the printed folder)
+- **Cancel button** (or `Esc`) — stops after the current file, the spool job is aborted cleanly
 - **Dedicated Preview button** (dry-run) + Print button with confirmation dialog
-- **Progress bar** with file counter
+- **Progress bar** with file counter and status line
 - **Dark-themed log window** with syntax highlighting
-- **Threaded execution** — UI stays responsive during printing; the window shows the app icon (BAUER GROUP)
+- **Threaded execution** — UI stays responsive during printing
+- **Settings persistence** — folder, printer, delay and options survive restarts (`%APPDATA%\PDFFolderPrint\settings.json`)
 
 ---
 
@@ -248,6 +267,12 @@ For building the standalone EXE:
 
 ---
 
+## Drag & Drop
+
+Drop a folder onto `pdf_folder_print.exe` (in Explorer) — it starts in CLI mode with that folder and shows the confirmation prompt before printing. Double-click (no arguments) always opens the GUI.
+
+---
+
 ## Development
 
 ```bash
@@ -263,9 +288,10 @@ The package layout lives under `src/pdf_folder_print/`:
 | `version.py`  | single source of truth for the version                 |
 | `core.py`     | file collection, PDF info, natural sort (no win32)     |
 | `scaling.py`  | pure fit-to-page / orientation math (no win32)         |
-| `printer.py`  | Windows GDI printing                                   |
+| `printer.py`  | Windows GDI printing, printer status                   |
 | `cli.py`      | Rich console interface                                 |
-| `gui.py`      | tkinter interface                                      |
+| `gui.py`      | tkinter interface (primary UI, settings persistence)   |
+| `report.py`   | optional CSV/JSON print report                         |
 
 Dependency versions are pinned in `pyproject.toml` / `requirements*.txt`
 for reproducible builds. Runtime deps in `requirements.txt`, build deps
