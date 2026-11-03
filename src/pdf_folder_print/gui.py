@@ -2,8 +2,14 @@
 GUI mode (tkinter) – the primary user interface.
 
 All functionality is available from the window: folder selection, printer
-(with live status), delay/retries, natural sort, optional CSV/JSON report,
+(with live status), delay/retries, sort order, optional CSV/JSON report,
 preview, printing and cancelling.
+
+Layout philosophy:
+  • everything is one aligned form grid (labels right-aligned, one column)
+  • options are grouped and labeled, not scattered
+  • progress/cancel elements only appear while a job runs
+  • the log is the result area
 
 ``PrintApp`` lives at module level (not nested) so it can be instantiated in
 tests. Worker threads never touch tkinter directly – they push
@@ -71,6 +77,8 @@ class PrintApp:
     WARN = "#b45309"
     ERROR = "#dc2626"
 
+    LABEL_COL = 130  # px width of the form's label column
+
     def __init__(self, root: tk.Tk):
         self.root = root
         self.ui_queue: queue.Queue = queue.Queue()
@@ -78,8 +86,8 @@ class PrintApp:
         self.cancel_event = threading.Event()
 
         self.root.title(f"PDF Folder Print {__version__}")
-        self.root.geometry("860x720")
-        self.root.minsize(740, 580)
+        self.root.geometry("900x760")
+        self.root.minsize(760, 620)
         self.root.configure(bg=self.BG)
         self.root.protocol("WM_DELETE_WINDOW", self._on_close)
 
@@ -88,6 +96,7 @@ class PrintApp:
         self._build_ui()
         self._show_welcome()
         self.refresh_printer_status()
+        self._toggle_report_fields()
         self.root.bind("<Escape>", self._on_escape)
         self.root.after(100, self._poll_queue)
 
@@ -105,13 +114,26 @@ class PrintApp:
         style.theme_use("clam")
         style.configure("TFrame", background=self.BG)
         style.configure("Card.TFrame", background=self.FRAME_BG, relief="solid", borderwidth=1)
+        style.configure("Cell.TFrame", background=self.FRAME_BG, relief="flat", borderwidth=0)
         style.configure("TLabel", background=self.BG, font=("Segoe UI", 10))
         style.configure("Header.TLabel", background=self.BG, font=("Segoe UI", 14, "bold"))
         style.configure("Card.TLabel", background=self.FRAME_BG, font=("Segoe UI", 10))
+        style.configure(
+            "CardLabel.TLabel", background=self.FRAME_BG, font=("Segoe UI", 10), foreground="#333333"
+        )
+        style.configure(
+            "CardDim.TLabel", background=self.FRAME_BG, font=("Segoe UI", 9), foreground="#999999"
+        )
+        style.configure(
+            "CardSection.TLabel",
+            background=self.FRAME_BG,
+            font=("Segoe UI", 9, "bold"),
+            foreground="#999999",
+        )
         style.configure("Card.TCheckbutton", background=self.FRAME_BG, font=("Segoe UI", 10))
         style.map("Card.TCheckbutton", background=[("active", self.FRAME_BG)])
-        style.configure("CardBold.TLabel", background=self.FRAME_BG, font=("Segoe UI", 10, "bold"))
-        style.configure("CardDim.TLabel", background=self.FRAME_BG, font=("Segoe UI", 9), foreground="#888888")
+        style.configure("Card.TRadiobutton", background=self.FRAME_BG, font=("Segoe UI", 10))
+        style.map("Card.TRadiobutton", background=[("active", self.FRAME_BG)])
         style.configure("Status.TLabel", background=self.BG, font=("Segoe UI", 10))
         style.configure("Accent.TButton", font=("Segoe UI", 11, "bold"), padding=(20, 10))
         style.configure(
@@ -133,6 +155,17 @@ class PrintApp:
             darkcolor=self.ACCENT,
         )
 
+    # ── Small construction helpers ─────────────────────────────
+    def _form_label(self, parent, text: str, row: int) -> ttk.Label:
+        lbl = ttk.Label(parent, text=text, style="CardLabel.TLabel", anchor="e")
+        lbl.grid(row=row, column=0, sticky="ne", padx=(14, 8), pady=6)
+        return lbl
+
+    def _section_label(self, parent, text: str, row: int) -> ttk.Label:
+        lbl = ttk.Label(parent, text=text.upper(), style="CardSection.TLabel")
+        lbl.grid(row=row, column=0, columnspan=3, sticky="w", padx=14, pady=(10, 2))
+        return lbl
+
     def _build_ui(self):
         # ── State (pre-filled from last session) ───────────────
         saved = load_settings()
@@ -140,7 +173,7 @@ class PrintApp:
         self.printer_var = tk.StringVar()
         self.delay_var = tk.StringVar(value=str(saved.get("delay", "1.0")))
         self.retries_var = tk.StringVar(value=str(saved.get("retries", "0")))
-        self.natural_var = tk.BooleanVar(value=bool(saved.get("natural_sort", False)))
+        self.sort_var = tk.StringVar(value="natural" if saved.get("natural_sort") else "alpha")
         self.report_var = tk.BooleanVar(value=bool(saved.get("report", False)))
         self.report_fmt_var = tk.StringVar(value=str(saved.get("report_format", "csv")))
         self.report_dir_var = tk.StringVar(value=str(saved.get("report_dir", "")))
@@ -152,139 +185,165 @@ class PrintApp:
             self.printer_var.set(saved["printer"])
 
         # ── Header ─────────────────────────────────────────────
-        header_frame = ttk.Frame(self.root)
-        header_frame.pack(fill="x", padx=20, pady=(15, 5))
-        ttk.Label(header_frame, text="🖨️ PDF Folder Print", style="Header.TLabel").pack(side="left")
+        header = ttk.Frame(self.root)
+        header.pack(fill="x", padx=24, pady=(16, 10))
+        ttk.Label(header, text="PDF Folder Print", style="Header.TLabel").pack(side="left")
         ttk.Label(
-            header_frame,
-            text=f"v{__version__} · BAUER GROUP",
-            style="TLabel",
-            foreground="#888",
-        ).pack(side="right")
+            header, text=f"v{__version__} · BAUER GROUP", style="TLabel", foreground="#999999"
+        ).pack(side="right", padx=(8, 0))
+        ttk.Label(
+            header, text="Strukturierter PDF-Stapeldruck", style="TLabel", foreground="#999999"
+        ).pack(side="right", padx=(8, 0))
+        header_line = tk.Frame(header, height=2, bg=self.ACCENT)
+        header_line.pack(fill="x", side="bottom", pady=(6, 0))
 
-        # ── Settings card ──────────────────────────────────────
-        settings_outer = ttk.Frame(self.root)
-        settings_outer.pack(fill="x", padx=20, pady=(10, 5))
-        settings = ttk.Frame(settings_outer, style="Card.TFrame")
-        settings.pack(fill="x", ipady=8)
+        # ── Settings card (form grid) ──────────────────────────
+        card_outer = ttk.Frame(self.root)
+        card_outer.pack(fill="x", padx=24, pady=(4, 8))
+        card = ttk.Frame(card_outer, style="Card.TFrame")
+        card.pack(fill="x", ipady=6)
+        card.columnconfigure(1, weight=1)
 
-        # Folder
-        row_folder = ttk.Frame(settings, style="Card.TFrame")
-        row_folder.pack(fill="x", padx=15, pady=(10, 5))
-        ttk.Label(row_folder, text="📁 Folder:", style="CardBold.TLabel").pack(side="left")
+        row = 0
+
+        # Section: Source & Destination
+        self._section_label(card, "Quelle & Ziel", row)
+        row += 1
+
+        self._form_label(card, "Ordner", row)
+        folder_cell = ttk.Frame(card, style="Cell.TFrame")
+        folder_cell.grid(row=row, column=1, columnspan=2, sticky="ew", padx=(0, 14), pady=6)
+        folder_cell.columnconfigure(0, weight=1)
+        self.entry_folder = ttk.Entry(folder_cell, textvariable=self.folder_var, font=("Segoe UI", 10))
+        self.entry_folder.grid(row=0, column=0, sticky="ew")
+        self.entry_folder.bind("<Return>", lambda _e: self.start_preview())
         self.btn_browse = ttk.Button(
-            row_folder, text="Browse...", style="Secondary.TButton", command=self.browse_folder
+            folder_cell, text="Durchsuchen…", style="Secondary.TButton", command=self.browse_folder, width=12
         )
-        self.btn_browse.pack(side="right", padx=(5, 0))
-        entry_folder = ttk.Entry(row_folder, textvariable=self.folder_var, font=("Segoe UI", 10))
-        entry_folder.pack(side="right", fill="x", expand=True, padx=(10, 5))
-        entry_folder.bind("<Return>", lambda _e: self.start_preview())
+        self.btn_browse.grid(row=0, column=1, padx=(8, 0))
+        row += 1
 
-        # Printer (with live status indicator)
-        row_printer = ttk.Frame(settings, style="Card.TFrame")
-        row_printer.pack(fill="x", padx=15, pady=(5, 2))
-        ttk.Label(row_printer, text="🖨️ Printer:", style="CardBold.TLabel").pack(side="left")
-        self.printer_status_label = ttk.Label(row_printer, text="", style="Card.TLabel")
-        self.printer_status_label.pack(side="right")
+        self._form_label(card, "Drucker", row)
+        printer_cell = ttk.Frame(card, style="Cell.TFrame")
+        printer_cell.grid(row=row, column=1, columnspan=2, sticky="ew", padx=(0, 14), pady=6)
+        printer_cell.columnconfigure(0, weight=1)
         self.combo_printer = ttk.Combobox(
-            row_printer,
+            printer_cell,
             textvariable=self.printer_var,
             values=printers,
             state="readonly",
             font=("Segoe UI", 10),
-            width=46,
         )
-        self.combo_printer.pack(side="right", fill="x", expand=True, padx=(10, 8))
+        self.combo_printer.grid(row=0, column=0, sticky="ew")
         self.combo_printer.bind("<<ComboboxSelected>>", lambda _e: self.refresh_printer_status())
+        self.printer_status_label = ttk.Label(printer_cell, text="", style="Card.TLabel", anchor="e")
+        self.printer_status_label.grid(row=0, column=1, padx=(8, 0))
+        row += 1
 
-        # Options: delay · retries · natural sort
-        row_options = ttk.Frame(settings, style="Card.TFrame")
-        row_options.pack(fill="x", padx=15, pady=(4, 2))
-        ttk.Label(row_options, text="⏱️ Delay:", style="CardBold.TLabel").pack(side="left")
-        ttk.Spinbox(
-            row_options,
-            textvariable=self.delay_var,
-            from_=0.0,
-            to=10.0,
-            increment=0.5,
-            width=5,
-            font=("Segoe UI", 10),
-        ).pack(side="left", padx=(6, 2))
-        ttk.Label(row_options, text="s", style="CardDim.TLabel").pack(side="left")
+        # Section: Options
+        self._section_label(card, "Optionen", row)
+        row += 1
 
-        ttk.Label(row_options, text="Retries:", style="CardBold.TLabel").pack(side="left", padx=(18, 0))
-        ttk.Spinbox(
-            row_options,
-            textvariable=self.retries_var,
-            from_=0,
-            to=5,
-            increment=1,
-            width=4,
-            font=("Segoe UI", 10),
-        ).pack(side="left", padx=(6, 0))
+        self._form_label(card, "Pause / Wiederholungen", row)
+        timing_cell = ttk.Frame(card, style="Cell.TFrame")
+        timing_cell.grid(row=row, column=1, columnspan=2, sticky="w", padx=(0, 14), pady=6)
+        self.spin_delay = ttk.Spinbox(
+            timing_cell, textvariable=self.delay_var, from_=0.0, to=10.0, increment=0.5, width=5, font=("Segoe UI", 10)
+        )
+        self.spin_delay.grid(row=0, column=0)
+        ttk.Label(timing_cell, text="Sek. zwischen Jobs (Delay)", style="CardDim.TLabel").grid(
+            row=0, column=1, padx=(6, 16)
+        )
+        self.spin_retries = ttk.Spinbox(
+            timing_cell, textvariable=self.retries_var, from_=0, to=5, increment=1, width=5, font=("Segoe UI", 10)
+        )
+        self.spin_retries.grid(row=0, column=2)
+        ttk.Label(timing_cell, text="Wiederholungen bei Fehler", style="CardDim.TLabel").grid(
+            row=0, column=3, padx=(6, 0)
+        )
+        timing_cell.columnconfigure((0, 1, 2, 3), pad=4)
+        row += 1
 
-        ttk.Checkbutton(
-            row_options,
-            text="Natural sort (file2 before file10)",
-            variable=self.natural_var,
-            style="Card.TCheckbutton",
-        ).pack(side="left", padx=(18, 0))
+        self._form_label(card, "Sortierung", row)
+        sort_cell = ttk.Frame(card, style="Cell.TFrame")
+        sort_cell.grid(row=row, column=1, columnspan=2, sticky="w", padx=(0, 14), pady=6)
+        self._sort_radios = [
+            ttk.Radiobutton(
+                sort_cell, text="Alphabetisch (A→Z)", variable=self.sort_var, value="alpha", style="Card.TRadiobutton"
+            ),
+            ttk.Radiobutton(
+                sort_cell,
+                text="Natürlich (file2 vor file10)",
+                variable=self.sort_var,
+                value="natural",
+                style="Card.TRadiobutton",
+            ),
+        ]
+        self._sort_radios[0].pack(side="left")
+        self._sort_radios[1].pack(side="left", padx=(14, 0))
+        row += 1
 
-        # Report: enable + format + directory
-        row_report = ttk.Frame(settings, style="Card.TFrame")
-        row_report.pack(fill="x", padx=15, pady=(4, 10))
-        ttk.Checkbutton(
-            row_report,
-            text="📄 Report:",
+        # Section: Report
+        self._section_label(card, "Report", row)
+        row += 1
+
+        self._form_label(card, "Report schreiben", row)
+        report_cell = ttk.Frame(card, style="Cell.TFrame")
+        report_cell.grid(row=row, column=1, columnspan=2, sticky="ew", padx=(0, 14), pady=6)
+        report_cell.columnconfigure(2, weight=1)
+        report_cb = ttk.Checkbutton(
+            report_cell,
+            text="CSV-/JSON-Zusammenfassung pro Datei",
             variable=self.report_var,
             style="Card.TCheckbutton",
             command=self._toggle_report_fields,
-        ).pack(side="left")
+        )
+        report_cb.grid(row=0, column=0)
         self.report_fmt_combo = ttk.Combobox(
-            row_report,
+            report_cell,
             textvariable=self.report_fmt_var,
             values=["csv", "json"],
-            state="readonly",
-            width=5,
+            state="disabled",
+            width=6,
             font=("Segoe UI", 10),
         )
-        self.report_fmt_combo.pack(side="left", padx=(6, 10))
+        self.report_fmt_combo.grid(row=0, column=1, padx=(14, 10))
+        self.entry_report_dir = ttk.Entry(report_cell, textvariable=self.report_dir_var, font=("Segoe UI", 10))
+        self.entry_report_dir.grid(row=0, column=2, sticky="ew")
         self.btn_report_dir = ttk.Button(
-            row_report, text="Folder...", style="Secondary.TButton", command=self.browse_report_dir, width=10
+            report_cell, text="Ordner…", style="Secondary.TButton", command=self.browse_report_dir, width=9
         )
-        self.btn_report_dir.pack(side="right", padx=(5, 0))
-        self.entry_report_dir = ttk.Entry(
-            row_report, textvariable=self.report_dir_var, font=("Segoe UI", 9)
-        )
-        self.entry_report_dir.pack(side="right", fill="x", expand=True, padx=(10, 4))
-        ttk.Label(
-            row_report, text="empty = next to the printed folder", style="CardDim.TLabel"
-        ).pack(side="right", padx=(0, 4))
+        self.btn_report_dir.grid(row=0, column=3, padx=(8, 0))
+        self.report_hint = ttk.Label(report_cell, text="", style="CardDim.TLabel")
+        self.report_hint.grid(row=1, column=0, columnspan=4, sticky="w")
+        row += 1
 
-        # ── Buttons ────────────────────────────────────────────
-        btn_frame = ttk.Frame(self.root)
-        btn_frame.pack(fill="x", padx=20, pady=8)
-        self.btn_print = ttk.Button(btn_frame, text="▶  Print", style="Accent.TButton", command=self.start_print)
+        # ── Action bar ─────────────────────────────────────────
+        action = ttk.Frame(self.root)
+        action.pack(fill="x", padx=24, pady=(8, 4))
+        self.btn_print = ttk.Button(action, text="▶  Drucken", style="Accent.TButton", command=self.start_print)
         self.btn_print.pack(side="left")
         self.btn_preview = ttk.Button(
-            btn_frame, text="🔍 Preview", style="Secondary.TButton", command=self.start_preview
+            action, text="🔍 Vorschau", style="Secondary.TButton", command=self.start_preview
         )
         self.btn_preview.pack(side="left", padx=(10, 0))
         self.btn_cancel = ttk.Button(
-            btn_frame, text="✖ Cancel", style="Secondary.TButton", command=self.cancel_job, state="disabled"
+            action, text="✖ Abbrechen", style="Secondary.TButton", command=self.cancel_job, state="disabled"
         )
         self.btn_cancel.pack(side="left", padx=(10, 0))
-        self.status_label = ttk.Label(btn_frame, text="", style="Status.TLabel")
+        self.status_label = ttk.Label(action, text="Bereit.", style="Status.TLabel")
         self.status_label.pack(side="right")
 
-        # ── Progress ───────────────────────────────────────────
+        # ── Progress (hidden while idle) ───────────────────────
+        self.progress_frame = ttk.Frame(self.root)
         self.progress_var = tk.DoubleVar(value=0)
-        progress = ttk.Progressbar(self.root, variable=self.progress_var, maximum=100)
-        progress.pack(fill="x", padx=20, pady=(0, 5))
+        self.progress_bar = ttk.Progressbar(self.progress_frame, variable=self.progress_var, maximum=100)
+        self.progress_bar.pack(fill="x", padx=24, pady=(2, 0))
+        # hidden until a job starts (set_running shows it)
 
         # ── Log ────────────────────────────────────────────────
         log_frame = ttk.Frame(self.root)
-        log_frame.pack(fill="both", expand=True, padx=20, pady=(0, 15))
+        log_frame.pack(fill="both", expand=True, padx=24, pady=(4, 16))
         self.log_text = tk.Text(
             log_frame,
             font=("Consolas", 9),
@@ -295,7 +354,7 @@ class PrintApp:
             relief="flat",
             wrap="word",
             state="disabled",
-            padx=10,
+            padx=12,
             pady=8,
         )
         self.log_text.pack(fill="both", expand=True, side="left")
@@ -311,19 +370,17 @@ class PrintApp:
         self.log_text.tag_configure("warn", foreground="#e5c07b")
         self.log_text.tag_configure("dim", foreground="#808080")
 
-        self._toggle_report_fields()
-
     def _show_welcome(self):
         self.log_msg("PDF Folder Print", "header")
-        self.log_msg("Structured PDF batch printing from folder trees.", "header")
+        self.log_msg("Strukturierter PDF-Stapeldruck aus Ordnerbäumen.", "header")
         self.log_msg("", "")
-        self.log_msg("1. Select a folder containing PDFs (with subfolders)", "info")
-        self.log_msg("2. Verify the target printer", "info")
-        self.log_msg("3. Click 'Preview' to inspect or 'Print' to start", "info")
+        self.log_msg("1. Ordner mit PDFs auswählen (inkl. Unterordner)", "info")
+        self.log_msg("2. Ziel-Drucker prüfen", "info")
+        self.log_msg("3. 'Vorschau' zur Kontrolle oder 'Drucken' zum Start", "info")
         self.log_msg("", "")
-        self.log_msg("Print order: root folder first, then subfolders (A→Z)", "dim")
-        self.log_msg("Scaling:     Fit-to-Page with auto portrait/landscape", "dim")
-        self.log_msg("Cancel:      stops after the current file (button or Esc)", "dim")
+        self.log_msg("Reihenfolge: Stammordner zuerst, dann Unterordner (A→Z)", "dim")
+        self.log_msg("Skalierung:  Fit-to-Page mit automatischer Ausrichtung", "dim")
+        self.log_msg("Abbrechen:   stoppt nach der aktuellen Datei (Button oder Esc)", "dim")
 
     # ── Printer status ─────────────────────────────────────────
     def refresh_printer_status(self):
@@ -338,7 +395,7 @@ class PrintApp:
                 text="⚠ " + ", ".join(problems), foreground=self.WARN
             )
         else:
-            self.printer_status_label.configure(text="✓ ready", foreground=self.SUCCESS)
+            self.printer_status_label.configure(text="✓ bereit", foreground=self.SUCCESS)
 
     # ── Queue-driven UI updates ────────────────────────────────
     def _poll_queue(self):
@@ -376,16 +433,26 @@ class PrintApp:
         s = "disabled" if running else "normal"
         if running:
             self.is_running.set()
+            self.progress_frame.pack(fill="x", before=self.log_text.master)
+            self.progress_var.set(0)
         else:
             self.is_running.clear()
             self.cancel_event.clear()
+            self.progress_frame.pack_forget()
         self.btn_print.configure(state=s)
         self.btn_preview.configure(state=s)
         self.btn_browse.configure(state=s)
         self.btn_report_dir.configure(state=s)
+        self.entry_report_dir.configure(state=s if not self.report_var.get() else "normal")
         self.btn_cancel.configure(state="normal" if running else "disabled")
         self.combo_printer.configure(state=s if running else "readonly")
-        self.report_fmt_combo.configure(state=s if running else "readonly")
+        self.report_fmt_combo.configure(
+            state=(s if running else "readonly") if self.report_var.get() else "disabled"
+        )
+        self.spin_delay.configure(state=s if running else "normal")
+        self.spin_retries.configure(state=s if running else "normal")
+        for radio in self._sort_radios:
+            radio.configure(state=s)
         if not running:
             self.refresh_printer_status()
 
@@ -395,7 +462,7 @@ class PrintApp:
             return
         self.cancel_event.set()
         self.btn_cancel.configure(state="disabled")
-        self.set_status("Cancelling after current file...", self.ERROR)
+        self.set_status("Abbruch nach aktueller Datei…", self.ERROR)
 
     def _on_escape(self, _event=None):
         if self.is_running.is_set():
@@ -408,32 +475,39 @@ class PrintApp:
     def browse_folder(self):
         initial = self.folder_var.get() or ""
         valid_dir = initial and Path(initial).is_dir()
-        folder = filedialog.askdirectory(title="Select folder", initialdir=valid_dir or "")
+        folder = filedialog.askdirectory(title="Ordner auswählen", initialdir=valid_dir or "")
         if folder:
             self.folder_var.set(folder)
 
     def browse_report_dir(self):
         initial = self.report_dir_var.get() or self.folder_var.get() or ""
         valid_dir = initial and Path(initial).is_dir()
-        folder = filedialog.askdirectory(title="Report folder", initialdir=valid_dir or "")
+        folder = filedialog.askdirectory(title="Report-Ordner", initialdir=valid_dir or "")
         if folder:
             self.report_dir_var.set(folder)
 
     def _toggle_report_fields(self):
-        combo_state = "readonly" if self.report_var.get() else "disabled"
-        entry_state = "normal" if self.report_var.get() else "disabled"
-        self.report_fmt_combo.configure(state=combo_state)
-        self.entry_report_dir.configure(state=entry_state)
-        self.btn_report_dir.configure(state=entry_state)
+        if self.report_var.get():
+            self.report_fmt_combo.configure(state="readonly")
+            self.entry_report_dir.configure(state="normal")
+            self.btn_report_dir.configure(state="normal")
+            self.report_hint.configure(
+                text="leer = neben dem gedruckten Ordner", foreground="#999999"
+            )
+        else:
+            self.report_fmt_combo.configure(state="disabled")
+            self.entry_report_dir.configure(state="disabled")
+            self.btn_report_dir.configure(state="disabled")
+            self.report_hint.configure(text="")
 
     def validate(self) -> Path | None:
         folder = self.folder_var.get().strip()
         if not folder:
-            messagebox.showwarning("No folder", "Please select a folder first.")
+            messagebox.showwarning("Kein Ordner", "Bitte zuerst einen Ordner auswählen.")
             return None
         p = Path(folder)
         if not p.is_dir():
-            messagebox.showerror("Folder not found", f"Folder does not exist:\n{p}")
+            messagebox.showerror("Ordner nicht gefunden", f"Der Ordner existiert nicht:\n{p}")
             return None
         return p
 
@@ -462,7 +536,7 @@ class PrintApp:
             "printer": self.printer_var.get(),
             "delay": self.delay_var.get(),
             "retries": self.retries_var.get(),
-            "natural_sort": bool(self.natural_var.get()),
+            "natural_sort": self.sort_var.get() == "natural",
             "report": bool(self.report_var.get()),
             "report_format": self.report_fmt_var.get(),
             "report_dir": self.report_dir_var.get().strip(),
@@ -478,13 +552,13 @@ class PrintApp:
         if not dry_run:
             problems = printer_status(printer)
             if problems and not messagebox.askyesno(
-                "Printer problem?",
-                f"The printer reports:\n\n{', '.join(problems)}\n\nStart printing anyway?",
+                "Drucker-Problem?",
+                f"Der Drucker meldet:\n\n{', '.join(problems)}\n\nTrotzdem drucken?",
             ):
                 return
             if not messagebox.askyesno(
-                "Start printing?",
-                f"Print all PDFs in\n\n{root_path.name}\n\nto printer\n\n{printer}\n\n?",
+                "Druck starten?",
+                f"Alle PDFs aus\n\n{root_path.name}\n\nauf Drucker\n\n{printer}\n\ndrucken?",
             ):
                 return
 
@@ -500,7 +574,7 @@ class PrintApp:
                 dry_run,
                 self._read_delay(),
                 self._read_retries(),
-                self.natural_var.get(),
+                self.sort_var.get() == "natural",
                 bool(self.report_var.get()),
                 self._report_dir(),
             ),
@@ -541,14 +615,14 @@ class PrintApp:
                 self.ui_queue.put(("log", f"  Report:      {path}", "header"))
             self._job_inner(root_path, printer, dry_run, delay, retries, natural, report_obj)
         except Exception as e:  # unexpected failure – surface it in the log
-            self.ui_queue.put(("log", f"\n⚠ Unexpected error: {e}", "error"))
+            self.ui_queue.put(("log", f"\n⚠ Unerwarteter Fehler: {e}", "error"))
         finally:
             if report_obj is not None:
                 try:
                     report_obj.close()
-                    self.ui_queue.put(("log", f"Report written: {report_obj.path}", "dim"))
+                    self.ui_queue.put(("log", f"Report geschrieben: {report_obj.path}", "dim"))
                 except Exception as e:
-                    self.ui_queue.put(("log", f"⚠ Report could not be written: {e}", "error"))
+                    self.ui_queue.put(("log", f"⚠ Report konnte nicht geschrieben werden: {e}", "error"))
             self.ui_queue.put(("running", False))
 
     def _job_inner(
@@ -564,22 +638,22 @@ class PrintApp:
         q = self.ui_queue
         pdfs = collect_pdfs(root_path, natural=natural)
         if not pdfs:
-            q.put(("log", "No PDF files found.", "error"))
-            q.put(("status", "No files", self.ERROR))
+            q.put(("log", "Keine PDF-Dateien gefunden.", "error"))
+            q.put(("status", "Keine Dateien", self.ERROR))
             return
 
         groups: dict[str, int] = {}
         for g, _ in pdfs:
             groups[g] = groups.get(g, 0) + 1
 
-        mode = "PREVIEW" if dry_run else "PRINTING"
+        mode = "VORSCHAU" if dry_run else "DRUCKEN"
         q.put(("log", "═" * 60, "dim"))
-        q.put(("log", f"  Folder:      {root_path.name}", "header"))
-        q.put(("log", f"  Printer:     {printer}", "header"))
-        q.put(("log", f"  Mode:        {mode}", "header"))
-        q.put(("log", "  Scaling:     Fit-to-Page + auto orientation", "header"))
-        q.put(("log", f"  Order:       {'natural' if natural else 'alphabetical'}", "header"))
-        q.put(("log", f"  Files:       {len(pdfs)} in {len(groups)} groups", "header"))
+        q.put(("log", f"  Ordner:      {root_path.name}", "header"))
+        q.put(("log", f"  Drucker:     {printer}", "header"))
+        q.put(("log", f"  Modus:       {mode}", "header"))
+        q.put(("log", "  Skalierung:  Fit-to-Page + automatische Ausrichtung", "header"))
+        q.put(("log", f"  Reihenfolge: {'natürlich' if natural else 'alphabetisch'}", "header"))
+        q.put(("log", f"  Dateien:     {len(pdfs)} in {len(groups)} Gruppen", "header"))
         q.put(("log", "═" * 60, "dim"))
         for gname, count in groups.items():
             q.put(("log", f"  📁 {gname}: {count} file(s)", "info"))
@@ -595,8 +669,8 @@ class PrintApp:
         for i, (group, pdf_path) in enumerate(pdfs):
             if self.cancel_event.is_set():
                 cancelled = True
-                q.put(("log", f"\n⚠ Cancelled – {i} of {len(pdfs)} files processed", "error"))
-                q.put(("status", f"Cancelled at {i} / {len(pdfs)}", self.ERROR))
+                q.put(("log", f"\n⚠ Abgebrochen – {i} von {len(pdfs)} Dateien verarbeitet", "error"))
+                q.put(("status", f"Abgebrochen bei {i} / {len(pdfs)}", self.ERROR))
                 break
 
             if group != current_group:
@@ -608,13 +682,13 @@ class PrintApp:
             if dry_run:
                 n, w, h = get_pdf_info(pdf_path)
                 if n > 0:
-                    orient = "landscape" if w > h else "portrait"
-                    info = f"{n} page{'s' if n != 1 else ''}, {w:.0f}×{h:.0f}mm ({orient})"
+                    orient = "quer" if w > h else "hoch"
+                    info = f"{n} Seite{'n' if n != 1 else ''}, {w:.0f}×{h:.0f}mm ({orient})"
                     ok_count += 1
                     if report is not None:
                         report.add(pdf_path.name, group, n, "dry-run")
                 else:
-                    info = "? (unreadable)"
+                    info = "? (unlesbar)"
                     fail_count += 1
                     if report is not None:
                         report.add(pdf_path.name, group, 0, "unreadable", error="cannot open PDF")
@@ -635,18 +709,24 @@ class PrintApp:
                     if ok or attempt >= retries or err == "cancelled":
                         break
                     attempt += 1
-                    q.put(("log", f"     ↻ retry {attempt}/{retries}", "warn"))
+                    q.put(("log", f"     ↻ Wiederholung {attempt}/{retries}", "warn"))
                     time.sleep(min(2**attempt, 5))
 
                 if ok:
-                    q.put(("log", f"     ✓ {pages} page{'s' if pages != 1 else ''}", "success"))
+                    q.put(
+                        (
+                            "log",
+                            f"     ✓ {pages} Seite{'n' if pages != 1 else ''}",
+                            "success",
+                        )
+                    )
                     ok_count += 1
                     total_pages += pages
                     if report is not None:
                         report.add(pdf_path.name, group, pages, "ok", duration_ms=dur_ms)
                 elif err == "cancelled":
                     cancelled = True
-                    q.put(("log", "     ✗ cancelled", "error"))
+                    q.put(("log", "     ✗ abgebrochen", "error"))
                     if report is not None:
                         report.add(
                             pdf_path.name, group, pages, "cancelled", error="aborted by user", duration_ms=dur_ms
@@ -662,21 +742,27 @@ class PrintApp:
 
             pct = (i + 1) / len(pdfs) * 100
             q.put(("progress", pct))
-            q.put(("status", f"{i + 1} / {len(pdfs)}...", self.ACCENT))
+            q.put(("status", f"{i + 1} / {len(pdfs)}…", self.ACCENT))
 
         q.put(("log", "\n" + "═" * 60, "dim"))
         if cancelled:
-            q.put(("log", f"  ⚠ ABORTED – {ok_count} files printed, {fail_count} failed", "error"))
+            q.put(
+                (
+                    "log",
+                    f"  ⚠ ABGEBROCHEN – {ok_count} Dateien gedruckt, {fail_count} fehlgeschlagen",
+                    "error",
+                )
+            )
         elif dry_run:
-            q.put(("log", f"  🔍 PREVIEW: {ok_count} files found", "header"))
-            q.put(("status", f"Preview: {ok_count} files", self.ACCENT))
+            q.put(("log", f"  🔍 VORSCHAU: {ok_count} Dateien gefunden", "header"))
+            q.put(("status", f"Vorschau: {ok_count} Dateien", self.ACCENT))
         else:
-            summary = f"✅ {ok_count} files ({total_pages} pages) printed"
+            summary = f"✅ {ok_count} Dateien ({total_pages} Seiten) gedruckt"
             if fail_count:
-                summary += f", {fail_count} failed"
+                summary += f", {fail_count} fehlgeschlagen"
             q.put(("log", f"  {summary}", "success" if fail_count == 0 else "error"))
             color = self.SUCCESS if fail_count == 0 else self.ERROR
-            q.put(("status", f"Done – {ok_count} OK, {fail_count} failed", color))
+            q.put(("status", f"Fertig – {ok_count} OK, {fail_count} fehlgeschlagen", color))
         q.put(("log", "═" * 60, "dim"))
         q.put(("progress", 100))
 
@@ -691,3 +777,4 @@ def gui_main() -> None:
     root = tk.Tk()
     PrintApp(root)
     root.mainloop()
+

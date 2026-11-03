@@ -139,7 +139,7 @@ Renders a table of all available Windows printers with the default printer highl
 
 ### GUI
 
-The GUI provides the same functionality with a visual interface:
+The GUI (German interface) provides the same functionality with a visual interface:
 
 - **Folder browser** with path entry (press `Enter` to run a preview)
 - **Printer dropdown** with **live status indicator** (`✓ ready` / `⚠ offline, paper out, ...`) — problems are confirmed before a print run starts
