@@ -4,6 +4,17 @@ All notable changes to this project are documented here. This file is maintained
 automatically by [semantic-release](https://github.com/semantic-release/semantic-release)
 on every release to `main`.
 
+## [0.4.1](https://github.com/bauer-group/IP-PDFFolderPrint/compare/v0.4.0...v0.4.1) (2026-11-03)
+
+### 🐛 Bug Fixes
+
+* **deps:** upgrade Pillow to 13.0.0 and pytest to 9.2.0 (security) ([ec04aab](https://github.com/bauer-group/IP-PDFFolderPrint/commit/ec04aab7cfc821cc6e8fe69ad15bdbc7260d0d1f))
+
+### 🔧 Maintenance
+
+* **deps:** comment to trigger dependabot manifest re-scan ([e94f7e4](https://github.com/bauer-group/IP-PDFFolderPrint/commit/e94f7e424880508ca06930f31998a1442a6bb2c4))
+* **repo:** remove accidentally committed build log, ignore it ([e339043](https://github.com/bauer-group/IP-PDFFolderPrint/commit/e339043366aea44c45bd5309d921ea8b3d2a8965))
+
 ## [0.4.0](https://github.com/bauer-group/IP-PDFFolderPrint/compare/v0.3.0...v0.4.0) (2026-11-03)
 
 ### 🚀 Features
